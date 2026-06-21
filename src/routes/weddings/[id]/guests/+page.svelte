@@ -20,14 +20,13 @@
     phone: '',
     group_id: '' as string,
     table_id: '' as string,
-    attending: 'pending' as string,
-    plus_count: 1,
-    dietary: '',
+    attendance_status: 'pending' as string,
+    plus_one: 0,
     notes: ''
   };
 
   let groupForm = { name: '' };
-  let tableForm = { name: '', capacity: 10 };
+  let tableForm = { table_number: '' as string, name: '', capacity: 10 };
 
   function openNewGuest() {
     editingGuest = null;
@@ -36,9 +35,8 @@
       phone: '',
       group_id: activeGroupId ? String(activeGroupId) : '',
       table_id: activeTableId ? String(activeTableId) : '',
-      attending: 'pending',
-      plus_count: 1,
-      dietary: '',
+      attendance_status: 'pending',
+      plus_one: 0,
       notes: ''
     };
     showGuestModal = true;
@@ -51,9 +49,8 @@
       phone: guest.phone || '',
       group_id: guest.group_id ? String(guest.group_id) : '',
       table_id: guest.table_id ? String(guest.table_id) : '',
-      attending: guest.attending,
-      plus_count: guest.plus_count,
-      dietary: guest.dietary || '',
+      attendance_status: guest.attendance_status,
+      plus_one: guest.plus_one || 0,
       notes: guest.notes || ''
     };
     showGuestModal = true;
@@ -73,29 +70,44 @@
 
   function openNewTable() {
     editingTable = null;
-    tableForm = { name: '', capacity: 10 };
+    tableForm = { table_number: String(data.tables.length + 1), name: '', capacity: 10 };
     showTableModal = true;
   }
 
   function openEditTable(table: any) {
     editingTable = table;
-    tableForm = { name: table.name, capacity: table.capacity };
+    tableForm = {
+      table_number: String(table.table_number),
+      name: table.name || '',
+      capacity: table.capacity
+    };
     showTableModal = true;
   }
 
-  $: filteredGuests = data.guests.filter(g => {
+  $: filteredGuests = data.guests.filter((g: any) => {
     if (activeGroupId && g.group_id !== activeGroupId) return false;
     if (activeTableId && g.table_id !== activeTableId) return false;
     return true;
   });
 
+  function attendingLabel(s: string) {
+    return { confirmed: '✅ 确认出席', declined: '❌ 不出席', pending: '⏳ 待确认' }[s] || s;
+  }
+
+  function tableDisplayName(t: any) {
+    return t.name || `${t.table_number}号桌`;
+  }
+
   async function saveGuest() {
     if (!guestForm.name) return;
     const payload = {
-      ...guestForm,
+      name: guestForm.name,
+      phone: guestForm.phone || null,
       group_id: guestForm.group_id ? Number(guestForm.group_id) : null,
       table_id: guestForm.table_id ? Number(guestForm.table_id) : null,
-      plus_count: Number(guestForm.plus_count) || 1
+      attendance_status: guestForm.attendance_status,
+      plus_one: Number(guestForm.plus_one) || 0,
+      notes: guestForm.notes || null
     };
 
     let res;
@@ -160,8 +172,12 @@
   }
 
   async function saveTable() {
-    if (!tableForm.name) return;
-    const payload = { ...tableForm, capacity: Number(tableForm.capacity) || 10 };
+    if (!tableForm.table_number) return;
+    const payload = {
+      table_number: Number(tableForm.table_number),
+      name: tableForm.name || null,
+      capacity: Number(tableForm.capacity) || 10
+    };
     let res;
     if (editingTable) {
       res = await fetch(`/api/tables/${editingTable.id}`, {
@@ -191,8 +207,6 @@
     if (activeTableId === id) activeTableId = null;
     await invalidateAll();
   }
-
-  const attendingLabel = (s: string) => ({ yes: '✅ 确认出席', no: '❌ 不出席', pending: '⏳ 待确认' }[s] || s);
 </script>
 
 <div class="container">
@@ -201,15 +215,19 @@
     <div class="stats-row">
       <div class="stat-chip">
         <span class="stat-label">总人数</span>
-        <span class="stat-value">{data.stats.total_guests}</span>
+        <span class="stat-value">{data.stats.total}</span>
       </div>
       <div class="stat-chip">
         <span class="stat-label">确认出席</span>
-        <span class="stat-value text-success">{data.stats.confirmed_attending}</span>
+        <span class="stat-value text-success">{data.stats.confirmed}</span>
       </div>
       <div class="stat-chip">
         <span class="stat-label">待确认</span>
         <span class="stat-value text-warning">{data.stats.pending}</span>
+      </div>
+      <div class="stat-chip">
+        <span class="stat-label">桌数</span>
+        <span class="stat-value">{data.tables.length}</span>
       </div>
     </div>
   </div>
@@ -218,32 +236,32 @@
     <!-- 分组栏 -->
     <div class="card sidebar-card">
       <div class="card-header">
-      <span class="section-title">分组</span>
-      <button class="btn btn-primary btn-sm" on:click={openNewGroup}>+ 新增</button>
-    </div>
-    <div class="list">
-      <div
-        class="list-item {activeGroupId === null ? 'active' : ''}"
-        on:click={() => (activeGroupId = null)}
-      >
-        <span class="list-item-name">全部宾客</span>
-        <span class="list-item-count">{data.stats.total_guests}</span>
+        <span class="section-title">分组</span>
+        <button class="btn btn-primary btn-sm" on:click={openNewGroup}>+ 新增</button>
       </div>
-      {#each data.groups as g}
+      <div class="list">
         <div
-          class="list-item {activeGroupId === g.id ? 'active' : ''}"
-          on:click={() => (activeGroupId = g.id)}
+          class="list-item {activeGroupId === null ? 'active' : ''}"
+          on:click={() => (activeGroupId = null)}
         >
-          <span class="list-item-name">{g.name}</span>
-          <span class="list-actions">
-            <span class="list-item-count">{g.guest_count}</span>
-            <button class="icon-btn" on:click|stopPropagation={() => openEditGroup(g)}>✏️</button>
-            <button class="icon-btn" on:click|stopPropagation={() => deleteGroup(g.id)}>🗑️</button>
-          </span>
+          <span class="list-item-name">全部宾客</span>
+          <span class="list-item-count">{data.stats.total}</span>
         </div>
-      {/each}
+        {#each data.groups as g}
+          <div
+            class="list-item {activeGroupId === g.id ? 'active' : ''}"
+            on:click={() => (activeGroupId = g.id)}
+          >
+            <span class="list-item-name">{g.name}</span>
+            <span class="list-actions">
+              <span class="list-item-count">{g.guest_count}</span>
+              <button class="icon-btn" on:click|stopPropagation={() => openEditGroup(g)}>✏️</button>
+              <button class="icon-btn" on:click|stopPropagation={() => deleteGroup(g.id)}>🗑️</button>
+            </span>
+          </div>
+        {/each}
+      </div>
     </div>
-  </div>
 
     <!-- 宾客列表 -->
     <div class="card main-card">
@@ -270,19 +288,22 @@
             <div class="guest-card">
               <div class="guest-main">
                 <div class="guest-name">{guest.name}</div>
-                <div class="guest-attending guest-attending-{guest.attending}">
-                  {attendingLabel(guest.attending)}
+                <div class="guest-attending guest-attending-{guest.attendance_status}">
+                  {attendingLabel(guest.attendance_status)}
                 </div>
               </div>
               <div class="guest-meta">
                 {#if guest.group_name}
                   <span class="meta-tag">{guest.group_name}</span>
                 {/if}
-                {#if guest.table_name}
-                  <span class="meta-tag meta-tag-table">🪑 {guest.table_name}</span>
+                {#if guest.table_number}
+                  <span class="meta-tag meta-tag-table">🪑 {guest.table_number}号桌</span>
                 {/if}
-                {#if guest.plus_count > 1}
-                  <span class="meta-tag">+{guest.plus_count - 1}人陪同</span>
+                {#if guest.plus_one > 0}
+                  <span class="meta-tag">+{guest.plus_one}人陪同</span>
+                {/if}
+                {#if guest.phone}
+                  <span class="meta-tag">📞 {guest.phone}</span>
                 {/if}
               </div>
               <div class="guest-actions">
@@ -307,7 +328,7 @@
           on:click={() => (activeTableId = null)}
         >
           <span class="list-item-name">全部桌次</span>
-          <span class="list-item-count">{data.stats.total_tables}</span>
+          <span class="list-item-count">{data.tables.length}</span>
         </div>
         {#each data.tables as t}
           <div
@@ -315,12 +336,12 @@
             on:click={() => (activeTableId = t.id)}
           >
             <span class="list-item-name">
-              {t.name}
+              {tableDisplayName(t)}
               {#if t.is_over}<span title="超员"> ⚠️</span>{/if}
             </span>
             <span class="list-actions">
               <span class="list-item-count {t.is_over ? 'over-count' : ''}">
-                {t.seated_count}/{t.capacity}
+                {t.guest_count}/{t.capacity}
               </span>
               <button class="icon-btn" on:click|stopPropagation={() => openEditTable(t)}>✏️</button>
               <button class="icon-btn" on:click|stopPropagation={() => deleteTable(t.id)}>🗑️</button>
@@ -362,7 +383,7 @@
           <select class="form-select" bind:value={guestForm.table_id}>
             <option value="">未安排</option>
             {#each data.tables as t}
-              <option value={t.id}>{t.name} ({t.seated_count}/{t.capacity})</option>
+              <option value={t.id}>{tableDisplayName(t)} ({t.guest_count}/{t.capacity})</option>
             {/each}
           </select>
         </div>
@@ -370,24 +391,20 @@
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">出席状态</label>
-          <select class="form-select" bind:value={guestForm.attending}>
+          <select class="form-select" bind:value={guestForm.attendance_status}>
             <option value="pending">待确认</option>
-            <option value="yes">确认出席</option>
-            <option value="no">不出席</option>
+            <option value="confirmed">确认出席</option>
+            <option value="declined">不出席</option>
           </select>
         </div>
         <div class="form-group">
-          <label class="form-label">人数 (含本人)</label>
-          <input class="form-input" type="number" min="1" bind:value={guestForm.plus_count} />
+          <label class="form-label">陪同人数 (不含本人)</label>
+          <input class="form-input" type="number" min="0" bind:value={guestForm.plus_one} />
         </div>
       </div>
       <div class="form-group">
-        <label class="form-label">饮食禁忌</label>
-        <input class="form-input" bind:value={guestForm.dietary} placeholder="例如：清真、素食、海鲜过敏..." />
-      </div>
-      <div class="form-group">
         <label class="form-label">备注</label>
-        <textarea class="form-textarea" bind:value={guestForm.notes} placeholder="其他备注..." />
+        <textarea class="form-textarea" bind:value={guestForm.notes} placeholder="其他备注 (饮食禁忌等)..." />
       </div>
       <div class="modal-actions">
         <button class="btn btn-ghost" on:click={() => (showGuestModal = false)}>取消</button>
@@ -421,17 +438,21 @@
       <div class="modal-title">{editingTable ? '编辑桌次' : '新增桌次'}</div>
       <div class="form-row">
         <div class="form-group">
-          <label class="form-label">桌号/桌名 *</label>
-          <input class="form-input" bind:value={tableForm.name} placeholder="例如：主桌、1号桌" />
+          <label class="form-label">桌号 *</label>
+          <input class="form-input" type="number" min="1" bind:value={tableForm.table_number} />
         </div>
         <div class="form-group">
           <label class="form-label">容纳人数</label>
           <input class="form-input" type="number" min="1" bind:value={tableForm.capacity} />
         </div>
       </div>
+      <div class="form-group">
+        <label class="form-label">桌名 (可选)</label>
+        <input class="form-input" bind:value={tableForm.name} placeholder="例如：主桌、娘家桌" />
+      </div>
       <div class="modal-actions">
         <button class="btn btn-ghost" on:click={() => (showTableModal = false)}>取消</button>
-        <button class="btn btn-primary" disabled={!tableForm.name} on:click={saveTable}>保存</button>
+        <button class="btn btn-primary" disabled={!tableForm.table_number} on:click={saveTable}>保存</button>
       </div>
     </div>
   </div>
@@ -456,7 +477,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    min-width: 80px;
+    min-width: 72px;
   }
   .stat-label {
     font-size: 12px;
@@ -474,7 +495,7 @@
     gap: 16px;
     min-height: 600px;
   }
-  .sidebar-card { padding: 0; }
+  .sidebar-card { padding: 0; display: flex; flex-direction: column; }
   .main-card { padding: 0; display: flex; flex-direction: column; }
   .card-header {
     display: flex;
@@ -512,16 +533,9 @@
     margin-bottom: 2px;
   }
   .list-item:hover { background: #faf7f5; }
-  .list-item.active {
-    background: #f5ebe6;
-  }
-  .list-item.over {
-    background: #fff5f3;
-  }
-  .list-item-name {
-    font-size: 14px;
-    color: #4a3630;
-  }
+  .list-item.active { background: #f5ebe6; }
+  .list-item.over { background: #fff5f3; }
+  .list-item-name { font-size: 14px; color: #4a3630; }
   .list-item-count {
     font-size: 12px;
     color: #a5968d;
@@ -548,10 +562,7 @@
     font-size: 13px;
     opacity: 0.6;
   }
-  .icon-btn:hover {
-    background: #f2efec;
-    opacity: 1;
-  }
+  .icon-btn:hover { background: #f2efec; opacity: 1; }
   .guest-list {
     padding: 12px;
     overflow-y: auto;
@@ -584,11 +595,11 @@
     padding: 2px 8px;
     border-radius: 100px;
   }
-  .guest-attending-yes {
+  .guest-attending-confirmed {
     background: #e5f6ec;
     color: #2d8c4e;
   }
-  .guest-attending-no {
+  .guest-attending-declined {
     background: #f3d9d2;
     color: #c2513c;
   }
