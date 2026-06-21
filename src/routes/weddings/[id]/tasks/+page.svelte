@@ -116,7 +116,6 @@
               <div
                 class="task-card"
                 class:blocked={!task.can_start && task.status !== 'completed'}
-                draggable="true"
               >
                 <div class="flex-between" style="margin-bottom: 8px;">
                   <div class="task-title">{task.title}</div>
@@ -154,12 +153,7 @@
                 {/if}
 
                 <div class="task-actions">
-                  <button
-                    class="btn-link"
-                    on:click={() => openDepModal(task)}
-                  >
-                    管理依赖
-                  </button>
+                  <button class="btn-link" on:click={() => openDepModal(task)}>管理依赖</button>
                   <div class="status-buttons">
                     {#if status !== 'todo'}
                       <button class="btn-sm btn-ghost" on:click={() => changeStatus(task, 'todo')}>待办</button>
@@ -192,94 +186,6 @@
     {/each}
   </div>
 </div>
-
-{#if showNewModal}
-  <div class="modal-backdrop" on:click={(e) => e.target === e.currentTarget && (showNewModal = false)}>
-    <div class="modal modal-wide">
-      <div class="modal-title">新建任务</div>
-      <div class="form-group">
-        <label class="form-label">任务标题 *</label>
-        <input class="form-input" bind:value={newTask.title} placeholder="例如：预订酒店" />
-      </div>
-      <div class="form-group">
-        <label class="form-label">任务描述</label>
-        <textarea class="form-textarea" bind:value={newTask.description} placeholder="详细说明..." />
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">负责人</label>
-          <input class="form-input" bind:value={newTask.assignee} placeholder="谁来做？" />
-        </div>
-        <div class="form-group">
-          <label class="form-label">截止日期</label>
-          <input class="form-input" type="date" bind:value={newTask.due_date} />
-        </div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">前置任务（可选，多选）</label>
-        <div class="multi-select">
-          {#if data.tasks.length === 0}
-            <div class="text-sm text-muted">还没有其他任务</div>
-          {:else}
-            {#each data.tasks as t}
-              <label class="check-item">
-                <input
-                  type="checkbox"
-                  value={t.id}
-                  bind:group={newTask.dependencies}
-                />
-                <span>{t.title}</span>
-              </label>
-            {/each}
-          {/if}
-        </div>
-      </div>
-      <div class="modal-actions">
-        <button class="btn btn-ghost" on:click={() => (showNewModal = false)}>取消</button>
-        <button
-          class="btn btn-primary"
-          disabled={!newTask.title}
-          on:click={createTask}
-        >创建</button>
-      </div>
-    </div>
-  </div>
-{/if}
-
-{#if showDepModal && selectedTask}
-  <div class="modal-backdrop" on:click={(e) => e.target === e.currentTarget && (showDepModal = false)}>
-    <div class="modal">
-      <div class="modal-title">管理依赖：{selectedTask.title}</div>
-      <div class="text-sm text-muted mb-4">
-        勾选后，这个任务会等待勾选的任务完成后才能开始
-      </div>
-      {#if data.tasks.filter(t => t.id !== selectedTask!.id).length === 0}
-        <div class="text-sm text-muted">还没有其他任务</div>
-      {:else}
-        <div class="multi-select">
-          {#each data.tasks.filter(t => t.id !== selectedTask!.id) as t}
-            <label class="check-item">
-              <input
-                type="checkbox"
-                checked={selectedTask!.dependencies.includes(t.id)}
-                on:change={(e) => toggleDep(t.id, (e.target as HTMLInputElement).checked)}
-              />
-              <span>
-                {t.title}
-                <span class="tag {t.status === 'completed' ? 'tag-green' : 'tag-yellow'}" style="margin-left: 6px;">
-                  {TASK_STATUS_LABELS[t.status]}
-                </span>
-              </span>
-            </label>
-          {/each}
-        </div>
-      {/if}
-      <div class="modal-actions">
-        <button class="btn btn-primary" on:click={() => (showDepModal = false)}>完成</button>
-      </div>
-    </div>
-  </div>
-{/if}
 
 <style>
   .kanban {
@@ -418,3 +324,86 @@
   .check-item:hover { background: #faf7f5; }
   .check-item input { width: 16px; height: 16px; }
 </style>
+
+{#if showNewModal}
+  <div class="modal-backdrop" on:click={(e) => e.target === e.currentTarget && (showNewModal = false)}>
+    <div class="modal modal-wide">
+      <div class="modal-title">新建任务</div>
+      <div class="form-group">
+        <label class="form-label">任务标题 *</label>
+        <input class="form-input" bind:value={newTask.title} placeholder="例如：预订酒店" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">任务描述</label>
+        <textarea class="form-textarea" bind:value={newTask.description} placeholder="详细说明..." />
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">负责人</label>
+          <input class="form-input" bind:value={newTask.assignee} placeholder="谁来做？" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">截止日期</label>
+          <input class="form-input" type="date" bind:value={newTask.due_date} />
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">前置任务（可选，多选）</label>
+        <div class="multi-select">
+          {#if data.tasks.length === 0}
+            <div class="text-sm text-muted">还没有其他任务</div>
+          {:else}
+            {#each data.tasks as t}
+              <label class="check-item">
+                <input
+                  type="checkbox"
+                  value={t.id}
+                  bind:group={newTask.dependencies}
+                />
+                <span>{t.title}</span>
+              </label>
+            {/each}
+          {/if}
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" on:click={() => (showNewModal = false)}>取消</button>
+        <button
+          class="btn btn-primary"
+          disabled={!newTask.title}
+          on:click={createTask}
+        >创建</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if showDepModal && selectedTask}
+  <div class="modal-backdrop" on:click={(e) => e.target === e.currentTarget && (showDepModal = false)}>
+    <div class="modal">
+      <div class="modal-title">管理依赖：{selectedTask.title}</div>
+      <div class="text-sm text-muted mb-4">
+        勾选后，这个任务会等待勾选的任务完成后才能开始
+      </div>
+      {#if data.tasks.filter(t => t.id !== selectedTask.id).length === 0}
+        <div class="text-sm text-muted">还没有其他任务</div>
+      {:else}
+        <div class="multi-select">
+          {#each data.tasks.filter(t => t.id !== selectedTask.id) as t}
+            <label class="check-item">
+              <input
+                type="checkbox"
+                checked={selectedTask.dependencies.includes(t.id)}
+                on:change={(e) => toggleDep(t.id, e.target.checked)}
+              />
+              <span>{t.title}</span>
+            </label>
+          {/each}
+        </div>
+      {/if}
+      <div class="modal-actions">
+        <button class="btn btn-primary" on:click={() => (showDepModal = false)}>完成</button>
+      </div>
+    </div>
+  </div>
+{/if}

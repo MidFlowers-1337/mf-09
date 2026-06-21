@@ -18,7 +18,7 @@ export const actions = {
       budget_total: Number(form.get('budget_total')) || 0,
       notes: form.get('notes') ? String(form.get('notes')) : null
     });
-    const defaults = ['男方亲戚', '女方亲戚', '朋友', '同事', '其他'];
+    const defaults = ['男方亲戚', '女方亲戚', '男方朋友', '女方朋友', '同事', '其他'];
     for (const g of defaults) {
       await createGuestGroup({ wedding_id: id, name: g });
     }

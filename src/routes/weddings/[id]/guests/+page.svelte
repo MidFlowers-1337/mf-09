@@ -1,373 +1,357 @@
 <script lang="ts">
   import type { PageData } from './$types';
-  import type { GuestDetail, GuestGroupWithStats, TableWithStats, AttendanceStatus } from '$lib/types';
-  import { ATTENDANCE_LABELS, DEFAULT_GUEST_GROUPS } from '$lib/types';
-  import { formatMoney } from '$lib/utils';
   import { invalidateAll } from '$app/navigation';
 
   export let data: PageData;
 
+  let activeGroupId: number | null = null;
+  let activeTableId: number | null = null;
+
   let showGuestModal = false;
   let showGroupModal = false;
   let showTableModal = false;
-  let editingGuest: GuestDetail | null = null;
+
+  let editingGuest: any = null;
+  let editingGroup: any = null;
+  let editingTable: any = null;
 
   let guestForm = {
     name: '',
     phone: '',
     group_id: '' as string,
     table_id: '' as string,
-    attendance_status: 'pending' as AttendanceStatus,
-    plus_one: 0,
+    attending: 'pending' as string,
+    plus_count: 1,
+    dietary: '',
     notes: ''
   };
-  let groupName = '';
-  let newTable = { table_number: 1, name: '', capacity: 10 };
-  let filterGroup: number | 'all' = 'all';
-  let filterTable: number | 'all' = 'all';
-  let searchQuery = '';
 
-  function resetGuestForm() {
-    guestForm = { name: '', phone: '', group_id: '', table_id: '', attendance_status: 'pending', plus_one: 0, notes: '' };
-    editingGuest = null;
-  }
+  let groupForm = { name: '' };
+  let tableForm = { name: '', capacity: 10 };
 
   function openNewGuest() {
-    resetGuestForm();
-    showGuestModal = true;
-  }
-  function openEditGuest(g: GuestDetail) {
-    editingGuest = g;
+    editingGuest = null;
     guestForm = {
-      name: g.name,
-      phone: g.phone ?? '',
-      group_id: g.group_id ? String(g.group_id) : '',
-      table_id: g.table_id ? String(g.table_id) : '',
-      attendance_status: g.attendance_status,
-      plus_one: g.plus_one,
-      notes: g.notes ?? ''
+      name: '',
+      phone: '',
+      group_id: activeGroupId ? String(activeGroupId) : '',
+      table_id: activeTableId ? String(activeTableId) : '',
+      attending: 'pending',
+      plus_count: 1,
+      dietary: '',
+      notes: ''
     };
     showGuestModal = true;
   }
 
+  function openEditGuest(guest: any) {
+    editingGuest = guest;
+    guestForm = {
+      name: guest.name,
+      phone: guest.phone || '',
+      group_id: guest.group_id ? String(guest.group_id) : '',
+      table_id: guest.table_id ? String(guest.table_id) : '',
+      attending: guest.attending,
+      plus_count: guest.plus_count,
+      dietary: guest.dietary || '',
+      notes: guest.notes || ''
+    };
+    showGuestModal = true;
+  }
+
+  function openNewGroup() {
+    editingGroup = null;
+    groupForm = { name: '' };
+    showGroupModal = true;
+  }
+
+  function openEditGroup(group: any) {
+    editingGroup = group;
+    groupForm = { name: group.name };
+    showGroupModal = true;
+  }
+
+  function openNewTable() {
+    editingTable = null;
+    tableForm = { name: '', capacity: 10 };
+    showTableModal = true;
+  }
+
+  function openEditTable(table: any) {
+    editingTable = table;
+    tableForm = { name: table.name, capacity: table.capacity };
+    showTableModal = true;
+  }
+
+  $: filteredGuests = data.guests.filter(g => {
+    if (activeGroupId && g.group_id !== activeGroupId) return false;
+    if (activeTableId && g.table_id !== activeTableId) return false;
+    return true;
+  });
+
   async function saveGuest() {
-    if (!guestForm.name.trim()) return;
+    if (!guestForm.name) return;
+    const payload = {
+      ...guestForm,
+      group_id: guestForm.group_id ? Number(guestForm.group_id) : null,
+      table_id: guestForm.table_id ? Number(guestForm.table_id) : null,
+      plus_count: Number(guestForm.plus_count) || 1
+    };
+
+    let res;
     if (editingGuest) {
-      await fetch(`/api/guests/${editingGuest.id}`, {
+      res = await fetch(`/api/guests/${editingGuest.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...guestForm,
-          group_id: guestForm.group_id || null,
-          table_id: guestForm.table_id || null
-        })
+        body: JSON.stringify(payload)
       });
     } else {
-      await fetch(`/api/weddings/${data.wedding.id}/guests`, {
+      res = await fetch(`/api/weddings/${data.wedding.id}/guests`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...guestForm,
-          group_id: guestForm.group_id || null,
-          table_id: guestForm.table_id || null
-        })
+        body: JSON.stringify(payload)
       });
     }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(err?.error || err?.message || '保存失败');
+      return;
+    }
     showGuestModal = false;
-    resetGuestForm();
     await invalidateAll();
   }
 
   async function deleteGuest(id: number) {
-    if (!confirm('确定删除该宾客？')) return;
+    if (!confirm('确定删除这位宾客？')) return;
     await fetch(`/api/guests/${id}`, { method: 'DELETE' });
     await invalidateAll();
   }
 
-  async function createGroup() {
-    if (!groupName.trim()) return;
-    await fetch(`/api/weddings/${data.wedding.id}/groups`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: groupName })
-    });
-    groupName = '';
+  async function saveGroup() {
+    if (!groupForm.name) return;
+    let res;
+    if (editingGroup) {
+      res = await fetch(`/api/groups/${editingGroup.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(groupForm)
+      });
+    } else {
+      res = await fetch(`/api/weddings/${data.wedding.id}/groups`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(groupForm)
+      });
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(err?.error || err?.message || '保存失败');
+      return;
+    }
     showGroupModal = false;
     await invalidateAll();
   }
 
   async function deleteGroup(id: number) {
-    if (!confirm('确定删除该分组？宾客不会被删除，只是不再属于任何分组')) return;
+    if (!confirm('确定删除这个分组？组内宾客将变为未分组。')) return;
     await fetch(`/api/groups/${id}`, { method: 'DELETE' });
+    if (activeGroupId === id) activeGroupId = null;
     await invalidateAll();
   }
 
-  async function createTable() {
-    if (!newTable.table_number) return;
-    await fetch(`/api/weddings/${data.wedding.id}/tables`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newTable)
-    });
-    newTable = { table_number: (data.tables.length + 1), name: '', capacity: 10 };
+  async function saveTable() {
+    if (!tableForm.name) return;
+    const payload = { ...tableForm, capacity: Number(tableForm.capacity) || 10 };
+    let res;
+    if (editingTable) {
+      res = await fetch(`/api/tables/${editingTable.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    } else {
+      res = await fetch(`/api/weddings/${data.wedding.id}/tables`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(err?.error || err?.message || '保存失败');
+      return;
+    }
     showTableModal = false;
     await invalidateAll();
   }
 
   async function deleteTable(id: number) {
-    if (!confirm('确定删除该桌？座位上的宾客不会被删除，只是不再安排桌次')) return;
+    if (!confirm('确定删除这桌？该桌宾客将变为未安排。')) return;
     await fetch(`/api/tables/${id}`, { method: 'DELETE' });
+    if (activeTableId === id) activeTableId = null;
     await invalidateAll();
   }
 
-  function getFilteredGuests(): GuestDetail[] {
-    return data.guests.filter(g => {
-      if (filterGroup !== 'all' && g.group_id !== filterGroup) return false;
-      if (filterTable !== 'all' && g.table_id !== filterTable) return false;
-      if (searchQuery && !g.name.includes(searchQuery)) return false;
-      return true;
-    });
-  }
-
-  function getUnseatedGuestsCount(): number {
-    return data.guests.filter(g => !g.table_id && g.attendance_status !== 'declined').length
-      + data.guests.filter(g => !g.table_id && g.attendance_status !== 'declined').reduce((s, g) => s + g.plus_one, 0);
-  }
-
-  function getTotalConfirmedWithPlus(): number {
-    return data.guests.filter(g => g.attendance_status === 'confirmed').length
-      + data.guests.filter(g => g.attendance_status === 'confirmed').reduce((s, g) => s + g.plus_one, 0);
-  }
-
-  function getTotalTablesCapacity(): number {
-    return data.tables.reduce((s, t) => s + t.capacity, 0);
-  }
+  const attendingLabel = (s: string) => ({ yes: '✅ 确认出席', no: '❌ 不出席', pending: '⏳ 待确认' }[s] || s);
 </script>
 
 <div class="container">
-  <div class="flex-between mb-4">
+  <div class="page-header">
     <h1 class="page-title" style="margin: 0;">宾客管理</h1>
-    <button class="btn btn-primary" on:click={openNewGuest}>➕ 添加宾客</button>
+    <div class="stats-row">
+      <div class="stat-chip">
+        <span class="stat-label">总人数</span>
+        <span class="stat-value">{data.stats.total_guests}</span>
+      </div>
+      <div class="stat-chip">
+        <span class="stat-label">确认出席</span>
+        <span class="stat-value text-success">{data.stats.confirmed_attending}</span>
+      </div>
+      <div class="stat-chip">
+        <span class="stat-label">待确认</span>
+        <span class="stat-value text-warning">{data.stats.pending}</span>
+      </div>
+    </div>
   </div>
 
-  <div class="stats-bar grid-4">
-    <div class="stat-item card">
-      <div class="stat-label">总邀请</div>
-      <div class="stat-value">{data.stats.total_with_plus}</div>
-      <div class="text-xs text-muted">{data.stats.total} 人 + {data.stats.total_with_plus - data.stats.total} 个携伴</div>
+  <div class="three-col">
+    <!-- 分组栏 -->
+    <div class="card sidebar-card">
+      <div class="card-header">
+      <span class="section-title">分组</span>
+      <button class="btn btn-primary btn-sm" on:click={openNewGroup}>+ 新增</button>
     </div>
-    <div class="stat-item card">
-      <div class="stat-label">已确认</div>
-      <div class="stat-value text-success">{getTotalConfirmedWithPlus()}</div>
-      <div class="text-xs text-muted">主宾 {data.stats.confirmed} + 携伴 {getTotalConfirmedWithPlus() - data.stats.confirmed}</div>
+    <div class="list">
+      <div
+        class="list-item {activeGroupId === null ? 'active' : ''}"
+        on:click={() => (activeGroupId = null)}
+      >
+        <span class="list-item-name">全部宾客</span>
+        <span class="list-item-count">{data.stats.total_guests}</span>
+      </div>
+      {#each data.groups as g}
+        <div
+          class="list-item {activeGroupId === g.id ? 'active' : ''}"
+          on:click={() => (activeGroupId = g.id)}
+        >
+          <span class="list-item-name">{g.name}</span>
+          <span class="list-actions">
+            <span class="list-item-count">{g.guest_count}</span>
+            <button class="icon-btn" on:click|stopPropagation={() => openEditGroup(g)}>✏️</button>
+            <button class="icon-btn" on:click|stopPropagation={() => deleteGroup(g.id)}>🗑️</button>
+          </span>
+        </div>
+      {/each}
     </div>
-    <div class="stat-item card">
-      <div class="stat-label">席位安排</div>
-      <div class="stat-value">{getTotalTablesCapacity()}</div>
-      <div class="text-xs text-muted">
-        {#if getUnseatedGuestsCount() > 0}
-          <span class="text-danger">还有 {getUnseatedGuestsCount()} 人未安排</span>
+  </div>
+
+    <!-- 宾客列表 -->
+    <div class="card main-card">
+      <div class="card-header">
+        <span class="section-title">
+          宾客
+          {#if activeGroupId}
+            <span class="filter-tag">按分组筛选</span>
+          {/if}
+          {#if activeTableId}
+            <span class="filter-tag">按桌次筛选</span>
+          {/if}
+        </span>
+        <button class="btn btn-primary btn-sm" on:click={openNewGuest}>+ 新增宾客</button>
+      </div>
+      <div class="guest-list">
+        {#if filteredGuests.length === 0}
+          <div class="empty-state" style="padding: 40px 20px;">
+            <div style="font-size: 32px; margin-bottom: 8px;">👥</div>
+            <div style="font-size: 13px; color: #a5968d;">暂无宾客</div>
+          </div>
         {:else}
-          <span class="text-success">全部已入座</span>
-        {/if}
-      </div>
-    </div>
-    <div class="stat-item card">
-      <div class="stat-label">待确认 / 婉拒</div>
-      <div class="stat-value">
-        <span style="color: #997404;">{data.stats.pending}</span>
-        <span class="text-muted"> / </span>
-        <span style="color: #a5968d;">{data.stats.declined}</span>
-      </div>
-      <div class="text-xs text-muted">确认率 {data.stats.total > 0 ? Math.round((data.stats.confirmed / data.stats.total) * 100) : 0}%</div>
-    </div>
-  </div>
-
-  <div class="main-grid" style="margin-top: 20px;">
-    <div class="sidebar">
-      <div class="card mb-4">
-        <div class="flex-between" style="margin-bottom: 12px;">
-          <div class="section-title" style="margin: 0;">分组</div>
-          <button class="btn-link" on:click={() => (showGroupModal = true)}>+ 新分组</button>
-        </div>
-        <div style="display: flex; flex-direction: column; gap: 4px;">
-          <div
-            class="group-item {filterGroup === 'all' ? 'active' : ''}"
-            on:click={() => (filterGroup = 'all')}
-          >
-            <span>全部宾客</span>
-            <span class="count">{data.guests.length}</span>
-          </div>
-          {#each data.groups as g}
-            <div
-              class="group-item {filterGroup === g.id ? 'active' : ''}"
-              on:click={() => (filterGroup = filterGroup === g.id ? 'all' : g.id)}
-            >
-              <span>{g.name}</span>
-              <span class="flex gap-2 items-center">
-                <span class="count">{g.confirmed_count}/{g.guest_count}</span>
-                <button
-                  class="btn-ghost btn-sm"
-                  style="padding: 0 4px;"
-                  on:click|stopPropagation={() => deleteGroup(g.id)}
-                >✕</button>
-              </span>
-            </div>
-          {/each}
-          {#each DEFAULT_GUEST_GROUPS.filter(n => !data.groups.find(g => g.name === n)) as missingName}
-            <button
-              class="btn-link"
-              style="text-align: left; padding: 6px 10px; color: #c47567;"
-              on:click={async () => {
-                await fetch(`/api/weddings/${data.wedding.id}/groups`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ name: missingName })
-                });
-                await invalidateAll();
-              }}
-            >+ 添加"{missingName}"分组</button>
-          {/each}
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="flex-between" style="margin-bottom: 12px;">
-          <div class="section-title" style="margin: 0;">桌次</div>
-          <button class="btn-link" on:click={() => (showTableModal = true)}>+ 新桌</button>
-        </div>
-        <div style="display: flex; flex-direction: column; gap: 4px;">
-          <div
-            class="group-item {filterTable === 'all' ? 'active' : ''}"
-            on:click={() => (filterTable = 'all')}
-          >
-            <span>全部桌次</span>
-          </div>
-          {#each data.tables as t}
-            <div
-              class="group-item {filterTable === t.id ? 'active' : ''}"
-              class:table-over={t.is_over}
-              on:click={() => (filterTable = filterTable === t.id ? 'all' : t.id)}
-            >
-              <div style="flex: 1;">
-                <div style="font-size: 13px; font-weight: 500;">
-                  第 {t.table_number} 桌 {t.name ? `· ${t.name}` : ''}
-                </div>
-                <div class="text-xs text-muted">
-                  {t.guest_count}/{t.capacity} 人
-                  {#if t.is_full && !t.is_over}
-                    <span class="tag tag-yellow" style="margin-left: 4px;">坐满</span>
-                  {:else if t.is_over}
-                    <span class="tag tag-red">超员</span>
-                  {/if}
+          {#each filteredGuests as guest}
+            <div class="guest-card">
+              <div class="guest-main">
+                <div class="guest-name">{guest.name}</div>
+                <div class="guest-attending guest-attending-{guest.attending}">
+                  {attendingLabel(guest.attending)}
                 </div>
               </div>
-              <button
-                class="btn-ghost btn-sm"
-                style="padding: 0 4px;"
-                on:click|stopPropagation={() => deleteTable(t.id)}
-              >✕</button>
+              <div class="guest-meta">
+                {#if guest.group_name}
+                  <span class="meta-tag">{guest.group_name}</span>
+                {/if}
+                {#if guest.table_name}
+                  <span class="meta-tag meta-tag-table">🪑 {guest.table_name}</span>
+                {/if}
+                {#if guest.plus_count > 1}
+                  <span class="meta-tag">+{guest.plus_count - 1}人陪同</span>
+                {/if}
+              </div>
+              <div class="guest-actions">
+                <button class="icon-btn" on:click={() => openEditGuest(guest)}>✏️</button>
+                <button class="icon-btn" on:click={() => deleteGuest(guest.id)}>🗑️</button>
+              </div>
             </div>
           {/each}
-          {#if data.tables.length === 0}
-            <div class="text-sm text-muted" style="padding: 8px;">还没有桌次</div>
-          {/if}
-        </div>
+        {/if}
       </div>
     </div>
 
-    <div class="content-area">
-      <div class="card">
-        <div class="flex-between mb-4">
-          <div class="section-title" style="margin: 0;">
-            宾客列表 ({getFilteredGuests().length})
-          </div>
-          <input
-            class="form-input"
-            style="width: 200px; padding: 6px 10px; font-size: 13px;"
-            placeholder="搜索姓名..."
-            bind:value={searchQuery}
-          />
+    <!-- 桌次栏 -->
+    <div class="card sidebar-card">
+      <div class="card-header">
+        <span class="section-title">桌次</span>
+        <button class="btn btn-primary btn-sm" on:click={openNewTable}>+ 新增</button>
+      </div>
+      <div class="list">
+        <div
+          class="list-item {activeTableId === null ? 'active' : ''}"
+          on:click={() => (activeTableId = null)}
+        >
+          <span class="list-item-name">全部桌次</span>
+          <span class="list-item-count">{data.stats.total_tables}</span>
         </div>
-        {#if getFilteredGuests().length === 0}
-          <div class="empty-state">
-            暂无宾客
-            <button class="btn btn-primary btn-sm mt-4" on:click={openNewGuest}>添加第一个宾客</button>
+        {#each data.tables as t}
+          <div
+            class="list-item {activeTableId === t.id ? 'active' : ''} {t.is_over ? 'over' : ''}"
+            on:click={() => (activeTableId = t.id)}
+          >
+            <span class="list-item-name">
+              {t.name}
+              {#if t.is_over}<span title="超员"> ⚠️</span>{/if}
+            </span>
+            <span class="list-actions">
+              <span class="list-item-count {t.is_over ? 'over-count' : ''}">
+                {t.seated_count}/{t.capacity}
+              </span>
+              <button class="icon-btn" on:click|stopPropagation={() => openEditTable(t)}>✏️</button>
+              <button class="icon-btn" on:click|stopPropagation={() => deleteTable(t.id)}>🗑️</button>
+            </span>
           </div>
-        {:else}
-          <table class="table">
-            <thead>
-              <tr>
-                <th>姓名</th>
-                <th>分组</th>
-                <th>桌次</th>
-                <th>状态</th>
-                <th>携伴</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each getFilteredGuests() as g}
-                <tr>
-                  <td>
-                    <div style="font-weight: 500;">{g.name}</div>
-                    {#if g.phone}
-                      <div class="text-xs text-muted">{g.phone}</div>
-                    {/if}
-                  </td>
-                  <td>{g.group_name || <span class="text-muted">—</span>}</td>
-                  <td>
-                    {#if g.table_number}
-                      第 {g.table_number} 桌
-                    {:else}
-                      <span class="text-muted">未安排</span>
-                    {/if}
-                  </td>
-                  <td>
-                    <span class="tag {g.attendance_status === 'confirmed' ? 'tag-green' : g.attendance_status === 'declined' ? 'tag-gray' : 'tag-yellow'}">
-                      {ATTENDANCE_LABELS[g.attendance_status]}
-                    </span>
-                  </td>
-                  <td>{g.plus_one > 0 ? `+${g.plus_one}` : '—'}</td>
-                  <td>
-                    <div class="flex gap-2">
-                      <button class="btn-link" on:click={() => openEditGuest(g)}>编辑</button>
-                      <button class="btn-link" style="color:#c2513c" on:click={() => deleteGuest(g.id)}>删除</button>
-                    </div>
-                  </td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        {/if}
+        {/each}
       </div>
     </div>
   </div>
 </div>
 
+<!-- 宾客弹窗 -->
 {#if showGuestModal}
   <div class="modal-backdrop" on:click={(e) => e.target === e.currentTarget && (showGuestModal = false)}>
-    <div class="modal">
-      <div class="modal-title">{editingGuest ? '编辑宾客' : '添加宾客'}</div>
-      <div class="form-group">
-        <label class="form-label">姓名 *</label>
-        <input class="form-input" bind:value={guestForm.name} placeholder="宾客姓名" />
-      </div>
+    <div class="modal modal-wide">
+      <div class="modal-title">{editingGuest ? '编辑宾客' : '新增宾客'}</div>
       <div class="form-row">
         <div class="form-group">
-          <label class="form-label">电话</label>
-          <input class="form-input" bind:value={guestForm.phone} />
+          <label class="form-label">姓名 *</label>
+          <input class="form-input" bind:value={guestForm.name} placeholder="宾客姓名" />
         </div>
         <div class="form-group">
-          <label class="form-label">携伴人数</label>
-          <input class="form-input" type="number" min="0" bind:value={guestForm.plus_one} />
+          <label class="form-label">电话</label>
+          <input class="form-input" bind:value={guestForm.phone} placeholder="联系电话" />
         </div>
       </div>
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">分组</label>
           <select class="form-select" bind:value={guestForm.group_id}>
-            <option value="">（未分组）</option>
+            <option value="">未分组</option>
             {#each data.groups as g}
               <option value={g.id}>{g.name}</option>
             {/each}
@@ -376,112 +360,270 @@
         <div class="form-group">
           <label class="form-label">桌次</label>
           <select class="form-select" bind:value={guestForm.table_id}>
-            <option value="">（未安排）</option>
+            <option value="">未安排</option>
             {#each data.tables as t}
-              <option value={t.id}>
-                第 {t.table_number} 桌 {t.name ? `(${t.name})` : ''} [{t.guest_count}/{t.capacity}]
-              </option>
+              <option value={t.id}>{t.name} ({t.seated_count}/{t.capacity})</option>
             {/each}
           </select>
         </div>
       </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">出席状态</label>
+          <select class="form-select" bind:value={guestForm.attending}>
+            <option value="pending">待确认</option>
+            <option value="yes">确认出席</option>
+            <option value="no">不出席</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">人数 (含本人)</label>
+          <input class="form-input" type="number" min="1" bind:value={guestForm.plus_count} />
+        </div>
+      </div>
       <div class="form-group">
-        <label class="form-label">到场情况</label>
-        <select class="form-select" bind:value={guestForm.attendance_status}>
-          <option value="pending">待确认</option>
-          <option value="confirmed">已确认</option>
-          <option value="declined">无法到场</option>
-        </select>
+        <label class="form-label">饮食禁忌</label>
+        <input class="form-input" bind:value={guestForm.dietary} placeholder="例如：清真、素食、海鲜过敏..." />
       </div>
       <div class="form-group">
         <label class="form-label">备注</label>
-        <textarea class="form-textarea" bind:value={guestForm.notes} placeholder="饮食偏好、特别说明..." />
+        <textarea class="form-textarea" bind:value={guestForm.notes} placeholder="其他备注..." />
       </div>
       <div class="modal-actions">
         <button class="btn btn-ghost" on:click={() => (showGuestModal = false)}>取消</button>
-        <button class="btn btn-primary" disabled={!guestForm.name.trim()} on:click={saveGuest}>
-          {editingGuest ? '保存' : '添加'}
-        </button>
+        <button class="btn btn-primary" disabled={!guestForm.name} on:click={saveGuest}>保存</button>
       </div>
     </div>
   </div>
 {/if}
 
+<!-- 分组弹窗 -->
 {#if showGroupModal}
   <div class="modal-backdrop" on:click={(e) => e.target === e.currentTarget && (showGroupModal = false)}>
     <div class="modal">
-      <div class="modal-title">新建分组</div>
+      <div class="modal-title">{editingGroup ? '编辑分组' : '新增分组'}</div>
       <div class="form-group">
-        <label class="form-label">分组名称</label>
-        <input class="form-input" bind:value={groupName} placeholder="例如：同事" />
+        <label class="form-label">分组名称 *</label>
+        <input class="form-input" bind:value={groupForm.name} placeholder="例如：男方亲戚" />
       </div>
       <div class="modal-actions">
         <button class="btn btn-ghost" on:click={() => (showGroupModal = false)}>取消</button>
-        <button class="btn btn-primary" disabled={!groupName.trim()} on:click={createGroup}>创建</button>
+        <button class="btn btn-primary" disabled={!groupForm.name} on:click={saveGroup}>保存</button>
       </div>
     </div>
   </div>
 {/if}
 
+<!-- 桌次弹窗 -->
 {#if showTableModal}
   <div class="modal-backdrop" on:click={(e) => e.target === e.currentTarget && (showTableModal = false)}>
     <div class="modal">
-      <div class="modal-title">新建桌次</div>
+      <div class="modal-title">{editingTable ? '编辑桌次' : '新增桌次'}</div>
       <div class="form-row">
         <div class="form-group">
-          <label class="form-label">桌号</label>
-          <input class="form-input" type="number" min="1" bind:value={newTable.table_number} />
+          <label class="form-label">桌号/桌名 *</label>
+          <input class="form-input" bind:value={tableForm.name} placeholder="例如：主桌、1号桌" />
         </div>
         <div class="form-group">
-          <label class="form-label">容量</label>
-          <input class="form-input" type="number" min="1" bind:value={newTable.capacity} />
+          <label class="form-label">容纳人数</label>
+          <input class="form-input" type="number" min="1" bind:value={tableForm.capacity} />
         </div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">桌名（可选）</label>
-        <input class="form-input" bind:value={newTable.name} placeholder="例如：主桌、同学桌" />
       </div>
       <div class="modal-actions">
         <button class="btn btn-ghost" on:click={() => (showTableModal = false)}>取消</button>
-        <button class="btn btn-primary" disabled={!newTable.table_number} on:click={createTable}>创建</button>
+        <button class="btn btn-primary" disabled={!tableForm.name} on:click={saveTable}>保存</button>
       </div>
     </div>
   </div>
 {/if}
 
 <style>
-  .stats-bar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
-  .stat-item { padding: 16px 20px; }
-  .stat-label { font-size: 12px; color: #a5968d; margin-bottom: 4px; }
-  .stat-value { font-size: 24px; font-weight: 700; color: #4a3630; }
-  .stat-value.text-success { color: #2d8c4e; }
-  .main-grid { display: grid; grid-template-columns: 280px 1fr; gap: 20px; }
-  .sidebar { display: flex; flex-direction: column; }
-  .group-item {
+  .page-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 10px 12px;
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 14px;
-    color: #4a3630;
-    transition: background 0.15s;
+    margin-bottom: 20px;
   }
-  .group-item:hover { background: #faf7f5; }
-  .group-item.active {
+  .stats-row {
+    display: flex;
+    gap: 12px;
+  }
+  .stat-chip {
+    background: #fff;
+    border: 1px solid #f0ebe6;
+    border-radius: 10px;
+    padding: 10px 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 80px;
+  }
+  .stat-label {
+    font-size: 12px;
+    color: #a5968d;
+    margin-bottom: 2px;
+  }
+  .stat-value {
+    font-size: 20px;
+    font-weight: 700;
+    color: #4a3630;
+  }
+  .three-col {
+    display: grid;
+    grid-template-columns: 220px 1fr 240px;
+    gap: 16px;
+    min-height: 600px;
+  }
+  .sidebar-card { padding: 0; }
+  .main-card { padding: 0; display: flex; flex-direction: column; }
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 16px;
+    border-bottom: 1px solid #f2efec;
+  }
+  .section-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: #4a3630;
+  }
+  .filter-tag {
     background: #f5ebe6;
     color: #c47567;
-    font-weight: 600;
-  }
-  .group-item.table-over { background: #fff5f3; }
-  .count {
-    background: #f2efec;
-    color: #7a6f66;
+    font-size: 11px;
     padding: 2px 8px;
     border-radius: 100px;
+    margin-left: 8px;
+    font-weight: normal;
+  }
+  .list {
+    padding: 8px;
+    overflow-y: auto;
+    flex: 1;
+  }
+  .list-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    margin-bottom: 2px;
+  }
+  .list-item:hover { background: #faf7f5; }
+  .list-item.active {
+    background: #f5ebe6;
+  }
+  .list-item.over {
+    background: #fff5f3;
+  }
+  .list-item-name {
+    font-size: 14px;
+    color: #4a3630;
+  }
+  .list-item-count {
     font-size: 12px;
+    color: #a5968d;
+    background: #f2efec;
+    padding: 2px 8px;
+    border-radius: 100px;
+  }
+  .list-item-count.over-count {
+    background: #f3d9d2;
+    color: #c2513c;
     font-weight: 600;
   }
-  .group-item.active .count { background: #eadfd8; color: #c47567; }
+  .list-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .icon-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 4px;
+    font-size: 13px;
+    opacity: 0.6;
+  }
+  .icon-btn:hover {
+    background: #f2efec;
+    opacity: 1;
+  }
+  .guest-list {
+    padding: 12px;
+    overflow-y: auto;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .guest-card {
+    background: #fff;
+    border: 1px solid #f0ebe6;
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .guest-main {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .guest-name {
+    font-weight: 600;
+    font-size: 14px;
+    color: #4a3630;
+  }
+  .guest-attending {
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 100px;
+  }
+  .guest-attending-yes {
+    background: #e5f6ec;
+    color: #2d8c4e;
+  }
+  .guest-attending-no {
+    background: #f3d9d2;
+    color: #c2513c;
+  }
+  .guest-attending-pending {
+    background: #fef3e6;
+    color: #c98a3d;
+  }
+  .guest-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .meta-tag {
+    background: #f5ebe6;
+    color: #8b6b60;
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 6px;
+  }
+  .meta-tag-table {
+    background: #e8f4ed;
+    color: #3f8c58;
+  }
+  .guest-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 4px;
+    padding-top: 8px;
+    border-top: 1px solid #f2efec;
+  }
+  .empty-state {
+    text-align: center;
+    color: #a5968d;
+  }
+  .text-success { color: #2d8c4e; }
+  .text-warning { color: #c98a3d; }
+  .text-danger { color: #c2513c; }
 </style>

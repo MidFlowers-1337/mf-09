@@ -1,10 +1,56 @@
 <script lang="ts">
-  import { enhance } from '$app/forms';
   import type { PageData } from './$types';
   import { formatDateFriendly, formatMoney, daysUntil } from '$lib/utils';
+  import { invalidateAll, goto } from '$app/navigation';
 
   export let data: PageData;
   let showModal = false;
+  let form = {
+    groom_name: '',
+    bride_name: '',
+    wedding_date: '',
+    budget_total: '',
+    venue: '',
+    notes: ''
+  };
+  let submitting = false;
+
+  function resetForm() {
+    form = { groom_name: '', bride_name: '', wedding_date: '', budget_total: '', venue: '', notes: '' };
+  }
+
+  async function createWedding() {
+    if (!form.groom_name || !form.bride_name || !form.wedding_date) return;
+    submitting = true;
+    try {
+      const res = await fetch('/api/weddings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          groom_name: form.groom_name,
+          bride_name: form.bride_name,
+          wedding_date: form.wedding_date,
+          venue: form.venue || null,
+          budget_total: Number(form.budget_total) || 0,
+          notes: form.notes || null
+        })
+      });
+      if (res.ok) {
+        const body = await res.json();
+        showModal = false;
+        resetForm();
+        await invalidateAll();
+        if (body?.id) {
+          await goto(`/weddings/${body.id}`);
+        }
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err?.error || err?.message || '创建失败');
+      }
+    } finally {
+      submitting = false;
+    }
+  }
 </script>
 
 <div class="container">
@@ -89,40 +135,40 @@
   <div class="modal-backdrop" on:click={(e) => e.target === e.currentTarget && (showModal = false)}>
     <div class="modal">
       <div class="modal-title">新建婚礼</div>
-      <form method="POST" use:enhance on:submit={() => (showModal = false)}>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">新郎姓名</label>
-            <input class="form-input" name="groom_name" required placeholder="例如：张先生" />
-          </div>
-          <div class="form-group">
-            <label class="form-label">新娘姓名</label>
-            <input class="form-input" name="bride_name" required placeholder="例如：李小姐" />
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">婚礼日期</label>
-            <input class="form-input" name="wedding_date" type="date" required />
-          </div>
-          <div class="form-group">
-            <label class="form-label">预算总额 (元)</label>
-            <input class="form-input" name="budget_total" type="number" min="0" step="0.01" placeholder="例如：100000" />
-          </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">新郎姓名</label>
+          <input class="form-input" bind:value={form.groom_name} required placeholder="例如：张先生" />
         </div>
         <div class="form-group">
-          <label class="form-label">婚礼场地</label>
-          <input class="form-input" name="venue" placeholder="例如：XX大酒店宴会厅" />
+          <label class="form-label">新娘姓名</label>
+          <input class="form-input" bind:value={form.bride_name} required placeholder="例如：李小姐" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">婚礼日期</label>
+          <input class="form-input" bind:value={form.wedding_date} type="date" required />
         </div>
         <div class="form-group">
-          <label class="form-label">备注</label>
-          <textarea class="form-textarea" name="notes" placeholder="任何需要记录的信息..." />
+          <label class="form-label">预算总额 (元)</label>
+          <input class="form-input" bind:value={form.budget_total} type="number" min="0" step="0.01" placeholder="例如：100000" />
         </div>
-        <div class="modal-actions">
-          <button type="button" class="btn btn-ghost" on:click={() => (showModal = false)}>取消</button>
-          <button type="submit" class="btn btn-primary" name="action" value="create">创建婚礼</button>
-        </div>
-      </form>
+      </div>
+      <div class="form-group">
+        <label class="form-label">婚礼场地</label>
+        <input class="form-input" bind:value={form.venue} placeholder="例如：XX大酒店宴会厅" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">备注</label>
+        <textarea class="form-textarea" bind:value={form.notes} placeholder="任何需要记录的信息..." />
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" on:click={() => (showModal = false)}>取消</button>
+        <button type="button" class="btn btn-primary" on:click={createWedding} disabled={submitting}>
+          {submitting ? '创建中...' : '创建婚礼'}
+        </button>
+      </div>
     </div>
   </div>
 {/if}

@@ -7,7 +7,6 @@
   export let data: PageData;
 
   let showModal = false;
-  let warnOverage = false;
   let form = {
     category: '',
     supplier_id: '' as string,
@@ -24,28 +23,49 @@
 
   function reset() {
     form = { category: '', supplier_id: '', description: '', amount: '', expense_date: todayStr(), notes: '' };
-    warnOverage = false;
+  }
+
+  function getCheckboxChecked(e: Event): boolean {
+    const target = e.target as HTMLInputElement;
+    return target.checked;
   }
 
   async function addExpense() {
     if (!form.category || !form.description || !form.amount) return;
+    const amount = Number(form.amount);
+    if (isNaN(amount) || amount <= 0) return;
+
+    const payload = {
+      ...form,
+      supplier_id: form.supplier_id || null,
+      amount
+    };
+
     const res = await fetch(`/api/weddings/${data.wedding.id}/budget`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...form,
-        supplier_id: form.supplier_id || null,
-        amount: Number(form.amount)
-      })
+      body: JSON.stringify(payload)
     });
     const body = await res.json().catch(() => ({}));
-    if (body?.validation?.will_over && !warnOverage) {
-      warnOverage = true;
-      if (!confirm(`⚠️ 添加这笔后将超支 ${formatMoney(body.validation.overage)}\n确定要继续吗？`)) {
-        warnOverage = false;
+
+    if (res.status === 202 && body?.validation?.will_over) {
+      const ok = confirm(`⚠️ 添加这笔后将超支 ${formatMoney(body.validation.overage)}\n确定要继续吗？`);
+      if (!ok) return;
+      const res2 = await fetch(`/api/weddings/${data.wedding.id}/budget`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...payload, force_overage: true })
+      });
+      if (!res2.ok) {
+        const err = await res2.json().catch(() => ({}));
+        alert(err?.error || err?.message || '创建失败');
         return;
       }
+    } else if (!res.ok) {
+      alert(body?.error || body?.message || '创建失败');
+      return;
     }
+
     showModal = false;
     reset();
     await invalidateAll();
@@ -157,15 +177,9 @@
                       <div class="text-xs text-muted">{exp.notes}</div>
                     {/if}
                   </td>
-                  <td style="text-align: right; font-weight: 600;">
-                    {formatMoney(exp.amount)}
-                  </td>
+                  <td style="text-align: right; font-weight: 600;">{formatMoney(exp.amount)}</td>
                   <td style="text-align: right;">
-                    <button
-                      class="btn-link"
-                      style="color:#c2513c"
-                      on:click={() => deleteExpense(exp.id)}
-                    >删除</button>
+                    <button class="btn-ghost btn-sm" on:click={() => deleteExpense(exp.id)}>🗑️</button>
                   </td>
                 </tr>
               {/each}
@@ -181,35 +195,32 @@
   <div class="modal-backdrop" on:click={(e) => e.target === e.currentTarget && (showModal = false)}>
     <div class="modal">
       <div class="modal-title">记一笔支出</div>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">支出类别</label>
-          <select class="form-select" bind:value={form.category}>
-            <option value="">选择...</option>
-            {#each commonCategories as c}
-              <option value={c}>{c}</option>
-            {/each}
-          </select>
-          <input
-            class="form-input mt-2"
-            placeholder="或自定义类别"
-            bind:value={form.category}
-            style="padding: 6px 10px; font-size: 13px;"
-          />
-        </div>
-        <div class="form-group">
-          <label class="form-label">关联供应商（可选）</label>
-          <select class="form-select" bind:value={form.supplier_id}>
-            <option value="">（无）</option>
-            {#each data.suppliers as s}
-              <option value={s.id}>{SUPPLIER_CATEGORY_LABELS[s.category]} · {s.name}</option>
-            {/each}
-          </select>
+      <div class="form-group">
+        <label class="form-label">支出类别 *</label>
+        <div class="category-picker">
+          {#each commonCategories as cat}
+            <button
+              type="button"
+              class="cat-chip {form.category === cat ? 'active' : ''}"
+              on:click={() => (form.category = cat)}
+            >
+              {cat}
+            </button>
+          {/each}
         </div>
       </div>
       <div class="form-group">
-        <label class="form-label">支出说明</label>
-        <input class="form-input" bind:value={form.description} placeholder="例如：酒店定金" />
+        <label class="form-label">关联供应商</label>
+        <select class="form-select" bind:value={form.supplier_id}>
+          <option value="">不关联</option>
+          {#each data.suppliers as s}
+            <option value={s.id}>{SUPPLIER_CATEGORY_LABELS[s.category]} - {s.name}</option>
+          {/each}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">支出说明 *</label>
+        <input class="form-input" bind:value={form.description} placeholder="例如：婚宴定金" />
       </div>
       <div class="form-row">
         <div class="form-group">
@@ -217,7 +228,7 @@
           <input class="form-input" type="number" min="0" step="0.01" bind:value={form.amount} placeholder="0.00" />
         </div>
         <div class="form-group">
-          <label class="form-label">日期</label>
+          <label class="form-label">支出日期</label>
           <input class="form-input" type="date" bind:value={form.expense_date} />
         </div>
       </div>
@@ -225,24 +236,13 @@
         <label class="form-label">备注</label>
         <textarea class="form-textarea" bind:value={form.notes} placeholder="可选..." />
       </div>
-      {#if form.amount && Number(form.amount) > 0}
-        {#const check = { will_over: (data.budget.total_spent + Number(form.amount)) > data.budget.budget_total }}
-        {#if check.will_over}
-          <div
-            class="text-sm"
-            style="background:#fff5f3; color:#c2513c; padding:10px; border-radius:8px; border:1px solid #f3bcb1;"
-          >
-            ⚠️ 这笔支出后将 <b>超支 {formatMoney(Math.max(0, data.budget.total_spent + Number(form.amount) - data.budget.budget_total))}</b>
-          </div>
-        {/if}
-      {/if}
       <div class="modal-actions">
         <button class="btn btn-ghost" on:click={() => (showModal = false)}>取消</button>
         <button
           class="btn btn-primary"
           disabled={!form.category || !form.description || !form.amount}
           on:click={addExpense}
-        >记录</button>
+        >保存</button>
       </div>
     </div>
   </div>
@@ -250,17 +250,17 @@
 
 <style>
   .summary-card {
+    background: linear-gradient(135deg, #fff9f7 0%, #fff 100%);
     border: 2px solid #f5ebe6;
-    background: linear-gradient(135deg, #fffbf9 0%, #fff 100%);
   }
   .summary-card.over {
-    border-color: #f3bcb1;
     background: linear-gradient(135deg, #fff5f3 0%, #fff 100%);
+    border-color: #f3d9d2;
   }
   .summary-grid {
     display: grid;
-    grid-template-columns: auto 1fr auto;
-    gap: 32px;
+    grid-template-columns: 200px 1fr 200px;
+    gap: 24px;
     align-items: center;
   }
   .budget-total {
@@ -270,17 +270,81 @@
     margin-top: 4px;
   }
   .remaining {
-    font-size: 28px;
+    font-size: 22px;
     font-weight: 700;
     color: #2d8c4e;
     margin-top: 4px;
   }
-  .remaining.over-val { color: #c2513c; }
+  .remaining.over-val {
+    color: #c2513c;
+  }
   .text-right { text-align: right; }
-  .progress-wrap { min-width: 0; }
   .content-grid {
     display: grid;
-    grid-template-columns: 380px 1fr;
+    grid-template-columns: 300px 1fr;
     gap: 20px;
+  }
+  .section-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #4a3630;
+    margin-bottom: 4px;
+  }
+  .table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .table th, .table td {
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid #f2efec;
+  }
+  .table th {
+    background: #faf7f5;
+    font-size: 12px;
+    font-weight: 600;
+    color: #7a5c54;
+  }
+  .category-picker {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .cat-chip {
+    padding: 6px 12px;
+    border: 1.5px solid #e8dcd4;
+    border-radius: 100px;
+    background: #fff;
+    font-size: 13px;
+    color: #7a5c54;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .cat-chip:hover {
+    border-color: #d48c7e;
+    color: #c47567;
+  }
+  .cat-chip.active {
+    background: #f5ebe6;
+    border-color: #d48c7e;
+    color: #c47567;
+    font-weight: 500;
+  }
+  .text-xs { font-size: 12px; }
+  .text-sm { font-size: 13px; }
+  .text-muted { color: #a5968d; }
+  .text-success { color: #2d8c4e; }
+  .text-danger { color: #c2513c; }
+  .mt-4 { margin-top: 16px; }
+  .mb-2 { margin-bottom: 8px; }
+  .mb-4 { margin-bottom: 16px; }
+  .flex-between {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .empty-state {
+    text-align: center;
+    color: #a5968d;
   }
 </style>

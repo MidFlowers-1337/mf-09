@@ -1,4 +1,5 @@
 import { getDb } from './db';
+import { DEFAULT_GUEST_GROUPS } from '$lib/types';
 import type {
   Wedding,
   WeddingWithStats,
@@ -42,7 +43,14 @@ export async function createWedding(data: {
     data.budget_total,
     data.notes ?? null
   ]);
-  return Number(result.lastInsertRowid);
+  const weddingId = Number(result.lastInsertRowid);
+  for (let i = 0; i < DEFAULT_GUEST_GROUPS.length; i++) {
+    db.prepare(`
+      INSERT INTO guest_groups (wedding_id, name, sort_order)
+      VALUES (?, ?, ?)
+    `).run([weddingId, DEFAULT_GUEST_GROUPS[i], i]);
+  }
+  return weddingId;
 }
 
 export async function updateWedding(
